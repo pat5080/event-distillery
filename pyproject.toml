@@ -1,7 +1,7 @@
 [project]
 name = "event-distillery"
 version = "0.1.0"
-description = "Add your description here"
+description = "Distills hundreds of weekly event listings down to the handful worth knowing about."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -10,8 +10,14 @@ dependencies = [
     "pydantic>=2.13.4",
 ]
 
+[project.scripts]
+distillery = "distillery.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.2",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/distillery"]
