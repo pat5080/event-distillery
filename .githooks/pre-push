@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Rejects pushes to branches that do not follow the naming convention.
+#
+# Enable in a fresh clone with:
+#     git config core.hooksPath .githooks
+#
+# GitHub's server-side branch_name_pattern rule is Enterprise-only, so this
+# runs locally instead. Bypass a single push with --no-verify.
+
+set -euo pipefail
+
+pattern='^(main|(feature|fix|docs)/[a-z0-9._-]+)$'
+zero='0000000000000000000000000000000000000000'
+
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+    # Deleting a remote branch pushes the zero sha; always allow that.
+    [ "$local_sha" = "$zero" ] && continue
+
+    case "$remote_ref" in
+        refs/heads/*) branch="${remote_ref#refs/heads/}" ;;
+        *) continue ;;  # tags and other refs are not our business
+    esac
+
+    if [[ ! "$branch" =~ $pattern ]]; then
+        echo "pre-push: refusing to push '$branch'" >&2
+        echo "" >&2
+        echo "  branch names must be one of:" >&2
+        echo "    feature/<slug>   fix/<slug>   docs/<slug>" >&2
+        echo "" >&2
+        echo "  rename with: git branch -m feature/${branch##*/}" >&2
+        exit 1
+    fi
+done
