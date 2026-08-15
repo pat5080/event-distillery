@@ -3,18 +3,33 @@
 #
 # Enable in a fresh clone with:
 #     git config core.hooksPath .githooks
+# Undo with:
+#     git config --unset core.hooksPath
 #
-# GitHub's server-side branch_name_pattern rule is Enterprise-only, so this
-# runs locally instead. Bypass a single push with --no-verify.
+# Note: core.hooksPath shadows .git/hooks entirely, so anything installed there
+# (pre-commit, for example) stops firing silently while it is set.
+#
+# Rulesets are available on free public repos, but the branch_name_pattern rule
+# specifically is not: the API rejects it with a 422 while other rule types on
+# an identical payload succeed. Hence a local hook. Bypass once with --no-verify.
 
 set -euo pipefail
 
-pattern='^(main|(feature|fix|docs)/[a-z0-9._-]+)$'
-zero='0000000000000000000000000000000000000000'
+# [a-z] is collation-dependent — under some locales it also matches uppercase,
+# which would admit exactly the names this hook exists to reject.
+export LC_ALL=C
 
-while read -r _local_ref local_sha remote_ref _remote_sha; do
-    # Deleting a remote branch pushes the zero sha; always allow that.
-    [ "$local_sha" = "$zero" ] && continue
+pattern='^(main|(feature|fix|docs)/[a-z0-9._-]+)$'
+
+# The `|| [ -n ... ]` catches a final line with no trailing newline, which read
+# would otherwise discard — failing open and allowing the push.
+while read -r _local_ref local_sha remote_ref _remote_sha || [ -n "${local_sha:-}" ]; do
+    # Deleting a remote branch pushes an all-zero sha: 40 chars under sha1,
+    # 64 under sha256. Match any length rather than a literal.
+    case "$local_sha" in
+        *[!0]*) ;;
+        *) continue ;;
+    esac
 
     case "$remote_ref" in
         refs/heads/*) branch="${remote_ref#refs/heads/}" ;;
@@ -22,12 +37,18 @@ while read -r _local_ref local_sha remote_ref _remote_sha; do
     esac
 
     if [[ ! "$branch" =~ $pattern ]]; then
+        # Suggest a name that actually passes: lowercase, illegal chars folded
+        # to dashes, and the full branch named explicitly so the rename does not
+        # hit whatever happens to be checked out.
+        slug=$(printf '%s' "${branch##*/}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9._-' '-')
+        [ -n "$slug" ] || slug="rename-me"
+
         echo "pre-push: refusing to push '$branch'" >&2
         echo "" >&2
         echo "  branch names must be one of:" >&2
         echo "    feature/<slug>   fix/<slug>   docs/<slug>" >&2
         echo "" >&2
-        echo "  rename with: git branch -m feature/${branch##*/}" >&2
+        echo "  rename with: git branch -m \"$branch\" feature/$slug" >&2
         exit 1
     fi
 done
